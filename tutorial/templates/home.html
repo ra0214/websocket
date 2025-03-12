@@ -1,0 +1,268 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<h1>Hola página principal</h1>
+
+<p>{{saludo}}</p>
+
+<!-- Formulario para crear carreras -->
+<div class="form-container">
+    <h3>Crear Nueva Carrera</h3>
+    <form id="carreraForm">
+        <div>
+            <label for="nombre">Nombre:</label>
+            <input type="text" id="nombre" name="nombre" required>
+        </div>
+        <div>
+            <label for="descripcion">Descripción:</label>
+            <input type="text" id="descripcion" name="descripcion" required>
+        </div>
+        <button type="submit">Crear Carrera</button>
+    </form>
+</div>
+
+<ul id="lista-carreras">
+    {% for val in lista %}
+    <li>{{val.name}} - {{val.description}}
+        <a href="{% url 'editar_carrera' val.pk %}">Editar</a>
+        <a href="{% url 'eliminar_carrera' val.pk %}">Eliminar</a>
+    </li>
+    {% endfor %}
+</ul>
+
+<script>
+    const WS_URL = 'ws://' + window.location.host + '/ws/somepath/';
+    let socket;
+    
+    function actualizarLista(carreras) {
+        const listaCarreras = document.getElementById('lista-carreras');
+        listaCarreras.innerHTML = '';
+        carreras.forEach(carrera => {
+            const li = document.createElement('li');
+            li.innerHTML = `${carrera.nombre} - ${carrera.descripcion}
+                <a href="/editar/${carrera.id}">Editar</a>
+                <a href="/eliminar/${carrera.id}">Eliminar</a>`;
+            listaCarreras.appendChild(li);
+        });
+    }
+
+    function editarCarrera(id, nombre, descripcion) {
+        // Crear formulario de edición
+        const listaCarreras = document.getElementById('lista-carreras');
+        const form = document.createElement('form');
+        form.innerHTML = `
+            <input type="text" id="edit-nombre-${id}" value="${nombre}" required>
+            <input type="text" id="edit-descripcion-${id}" value="${descripcion}" required>
+            <button type="submit">Guardar</button>
+            <button type="button" onclick="cancelarEdicion()">Cancelar</button>
+        `;
+        
+        form.onsubmit = function(e) {
+            e.preventDefault();
+            const nuevoNombre = document.getElementById(`edit-nombre-${id}`).value;
+            const nuevaDescripcion = document.getElementById(`edit-descripcion-${id}`).value;
+            
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    type: 'editar_carrera',
+                    id: id,
+                    nombre: nuevoNombre,
+                    descripcion: nuevaDescripcion
+                }));
+            }
+            cancelarEdicion();
+        };
+        
+        // Reemplazar el contenido del li con el formulario
+        const li = event.target.closest('li');
+        li.innerHTML = '';
+        li.appendChild(form);
+    }
+
+    function eliminarCarrera(id) {
+        if (confirm('¿Estás seguro de que deseas eliminar esta carrera?')) {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    type: 'eliminar_carrera',
+                    id: id
+                }));
+            }
+        }
+    }
+
+    function cancelarEdicion() {
+        // Recargar la lista
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({
+                type: 'get_carreras'
+            }));
+        }
+    }
+
+    function actualizarLista(carreras) {
+        const listaCarreras = document.getElementById('lista-carreras');
+        listaCarreras.innerHTML = '';
+        carreras.forEach(carrera => {
+            const li = document.createElement('li');
+            li.innerHTML = `
+                ${carrera.nombre} - ${carrera.descripcion}
+                <button onclick="editarCarrera(${carrera.id}, '${carrera.nombre}', '${carrera.descripcion}')" class="btn-editar">Editar</button>
+                <button onclick="eliminarCarrera(${carrera.id})" class="btn-eliminar">Eliminar</button>
+            `;
+            listaCarreras.appendChild(li);
+        });
+    }
+
+    function connectWebSocket() {
+        socket = new WebSocket(WS_URL);
+        
+        socket.onopen = function() {
+            console.log('WebSocket conectado');
+        };
+        
+        socket.onmessage = function(event) {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.type === 'carrera_list' && Array.isArray(data.message)) {
+                    console.log('Actualizando lista de carreras');
+                    actualizarLista(data.message);
+                }
+            } catch (error) {
+                console.error('Error procesando mensaje:', error);
+            }
+        };
+        
+        socket.onclose = function() {
+            console.log('WebSocket desconectado');
+            setTimeout(connectWebSocket, 3000);
+        };
+    }
+    
+    // Manejar el envío del formulario
+    document.getElementById('carreraForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const nombre = document.getElementById('nombre').value;
+        const descripcion = document.getElementById('descripcion').value;
+        
+        if (!nombre || !descripcion) {
+            alert('Por favor complete todos los campos');
+            return;
+        }
+        
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({
+                type: 'crear_carrera',
+                nombre: nombre,
+                descripcion: descripcion
+            }));
+            
+            // Limpiar el formulario
+            this.reset();
+        } else {
+            console.error('WebSocket no está conectado');
+        }
+    });
+    
+    connectWebSocket();
+</script>
+
+<style>
+    .form-container {
+        margin: 20px 0;
+        padding: 15px;
+        border: 1px solid #ccc;
+        border-radius: 5px;
+        max-width: 400px;
+        background-color: #f9f9f9;
+    }
+    
+    .form-container h3 {
+        margin-top: 0;
+        color: #333;
+    }
+    
+    form div {
+        margin-bottom: 10px;
+    }
+    
+    label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+        color: #555;
+    }
+    
+    input {
+        width: 100%;
+        padding: 8px;
+        margin-bottom: 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        box-sizing: border-box;
+    }
+    
+    button {
+        background-color: #4CAF50;
+        color: white;
+        padding: 10px 15px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        width: 100%;
+        font-size: 16px;
+    }
+    
+    button:hover {
+        background-color: #45a049;
+    }
+
+    #lista-carreras {
+        margin-top: 20px;
+        padding-left: 0;
+    }
+
+    #lista-carreras li {
+        list-style: none;
+        padding: 10px;
+        margin-bottom: 5px;
+        background-color: #fff;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+    }
+
+    #lista-carreras li a {
+        margin-left: 10px;
+        color: #4CAF50;
+        text-decoration: none;
+    }
+
+    #lista-carreras li a:hover {
+        text-decoration: underline;
+    }
+
+    .btn-editar, .btn-eliminar {
+        padding: 5px 10px;
+        margin: 0 5px;
+        border: none;
+        border-radius: 3px;
+        cursor: pointer;
+    }
+
+    .btn-editar {
+        background-color: #4CAF50;
+        color: white;
+    }
+
+    .btn-eliminar {
+        background-color: #f44336;
+        color: white;
+    }
+
+    form input {
+        margin: 5px;
+        padding: 5px;
+    }
+</style>
+
+{% endblock content %}
