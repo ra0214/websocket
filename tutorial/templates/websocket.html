@@ -10,8 +10,27 @@
     </div>
 </div>
 
+<div class="formulario-container">
+    <h3>Agregar Nuevo Autor</h3>
+    <form id="formulario-autor" onsubmit="agregarAutor(event)">
+        <div class="form-group">
+            <label for="nombre">Nombre:</label>
+            <input type="text" id="nombre" name="nombre" required>
+        </div>
+        <div class="form-group">
+            <label for="apellido">Apellido:</label>
+            <input type="text" id="apellido" name="apellido" required>
+        </div>
+        <div class="form-group">
+            <label for="fecha_nacimiento">Fecha de Nacimiento:</label>
+            <input type="date" id="fecha_nacimiento" name="fecha_nacimiento" required>
+        </div>
+        <button type="submit" class="btn-agregar">Agregar Autor</button>
+    </form>
+</div>
+
 <script>
-    const WS_URL = 'ws://192.168.1.86:8000/ws/test/';
+    const WS_URL = 'ws://10.10.0.21:8000/ws/test/';
     let socket;
     let isConnected = false;
 
@@ -29,13 +48,32 @@
             
             socket.onmessage = function(event) {
                 try {
+                    console.log('Raw data received:', event.data);
                     const data = JSON.parse(event.data);
-                    console.log('Datos recibidos:', data);
-                    if (data.message && Array.isArray(data.message)) {
+                    console.log('Parsed data:', data);
+                    
+                    if (data.type === 'autor_operation') {
+                        // Si la operación fue exitosa, solicitamos la lista actualizada
+                        if (data.status === 'success') {
+                            socket.send(JSON.stringify({
+                                type: 'get_autores'
+                            }));
+                        } else {
+                            console.error('Error en la operación:', data.message);
+                            alert('Error: ' + data.message);
+                        }
+                    } else if (data.message && Array.isArray(data.message)) {
                         actualizarListaAutores(data.message);
+                    } else if (Array.isArray(data)) {
+                        actualizarListaAutores(data);
+                    } else if (data.autores && Array.isArray(data.autores)) {
+                        actualizarListaAutores(data.autores);
+                    } else {
+                        console.error('Formato de datos inesperado:', data);
                     }
                 } catch (error) {
                     console.error('Error procesando mensaje:', error);
+                    console.error('Mensaje recibido:', event.data);
                 }
             };
             
@@ -51,28 +89,111 @@
         }
     }
 
+    function agregarAutor(event) {
+    event.preventDefault();
+    const nombreInput = document.getElementById('nombre');
+    const apellidoInput = document.getElementById('apellido');
+    const fechaNacimientoInput = document.getElementById('fecha_nacimiento');
+    
+    const nuevoAutor = {
+        nombre: nombreInput.value.trim(),
+        apellido: apellidoInput.value.trim(),
+        fecha_nacimiento: fechaNacimientoInput.value
+    };
+    
+    if (nuevoAutor.nombre && nuevoAutor.apellido && nuevoAutor.fecha_nacimiento) {
+        const mensaje = {
+            type: 'create_autor',
+            ...nuevoAutor
+        };
+        
+        console.log('Datos que se envían al servidor:', mensaje);
+        socket.send(JSON.stringify(mensaje));
+        
+        nombreInput.value = '';
+        apellidoInput.value = '';
+        fechaNacimientoInput.value = '';
+    }
+}
+
     function actualizarListaAutores(autores) {
         const listaAutores = document.getElementById('lista-autores');
-        listaAutores.innerHTML = ''; // Limpiar lista actual
+        listaAutores.innerHTML = '';
         
-        console.log('Actualizando lista con autores:', autores);
-
+        console.log('Autores a mostrar:', autores);
+        
+        if (autores.length === 0) {
+            listaAutores.innerHTML = '<li>No hay autores disponibles</li>';
+            return;
+        }
+        
         autores.forEach(autor => {
             const li = document.createElement('li');
-            li.className = 'autor-item';
+            const id = autor.id || autor.autor_id || '';
+            const nombre = autor.nombre || autor.name || autor.autor_nombre || '';
+            
+            li.dataset.id = id;
             li.innerHTML = `
                 <div class="autor-info">
-                    <h4>${autor.nombre} ${autor.apellido}</h4>
-                    <div class="autor-detalles">
-                        <p><strong>ID:</strong> ${autor.id}</p>
-                        <p><strong>Nombre:</strong> ${autor.nombre}</p>
-                        <p><strong>Apellido:</strong> ${autor.apellido}</p>
-                    </div>
+                <span class="autor-nombre">${nombre} ${autor.apellido || ''}</span>
+                <span class="autor-fecha">${autor.fecha_nacimiento || ''}</span>
+                <div class="autor-botones">
+                    <button class="btn-editar" data-id="${id}">Editar</button>
+                    <button class="btn-eliminar" data-id="${id}">Eliminar</button>
                 </div>
-            `;
+            </div>
+        `;
             listaAutores.appendChild(li);
-            console.log('Autor agregado:', autor);
         });
+        
+        document.querySelectorAll('.btn-editar').forEach(button => {
+            button.addEventListener('click', function() {
+                editarAutor(this.dataset.id);
+            });
+        });
+        
+        document.querySelectorAll('.btn-eliminar').forEach(button => {
+            button.addEventListener('click', function() {
+                eliminarAutor(this.dataset.id);
+            });
+        });
+    }
+
+    function editarAutor(autorId) {
+        const listItem = document.querySelector(`li[data-id="${autorId}"]`);
+        const nombreSpan = listItem.querySelector('.autor-nombre');
+        const fechaSpan = listItem.querySelector('.autor-fecha');
+        
+        // Separar el nombre y apellido actuales
+        const [nombreActual, apellidoActual] = nombreSpan.textContent.trim().split(' ');
+        
+        // Pedir los nuevos datos
+        const nuevoNombre = prompt('Editar nombre:', nombreActual);
+        const nuevoApellido = prompt('Editar apellido:', apellidoActual);
+        const nuevaFecha = prompt('Editar fecha de nacimiento (YYYY-MM-DD):', fechaSpan.textContent);
+        
+        // Verificar si se hicieron cambios
+        if (nuevoNombre || nuevoApellido || nuevaFecha) {
+            socket.send(JSON.stringify({
+                type: 'update_autor',
+                id: autorId,
+                nombre: nuevoNombre || nombreActual,
+                apellido: nuevoApellido || apellidoActual,
+                fecha_nacimiento: nuevaFecha || fechaSpan.textContent
+            }));
+            
+            // No actualizamos el DOM aquí - esperamos la respuesta del servidor
+            // La actualización se hará a través de la función actualizarListaAutores
+        }
+    }
+
+    function eliminarAutor(autorId) {
+        if (confirm('¿Estás seguro que deseas eliminar este autor?')) {
+            socket.send(JSON.stringify({
+                type: 'delete_autor',
+                id: autorId
+            }));
+        }
     }
 
     document.addEventListener('DOMContentLoaded', function() {
@@ -150,5 +271,65 @@
         padding: 20px;
         color: #666;
     }
+
+    .formulario-container {
+    background-color: #f5f5f5;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    margin-bottom: 20px;
+}
+
+.form-group {
+    margin-bottom: 15px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 5px;
+    color: #333;
+}
+
+.form-group input {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 16px;
+}
+
+.btn-agregar {
+    background-color: #4CAF50;
+    color: white;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+.btn-agregar:hover {
+    background-color: #45a049;
+}
+
+.form-group input[type="date"] {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 16px;
+    font-family: Arial, sans-serif;
+}
+
+.formulario-container form {
+    display: grid;
+    gap: 15px;
+    max-width: 400px;
+    margin: 0 auto;
+}
+
+.btn-agregar {
+    margin-top: 10px;
+}
 </style>
 {% endblock %}
